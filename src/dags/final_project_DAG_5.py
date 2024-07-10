@@ -14,25 +14,21 @@ def extract_data_to_csv(ds, table_name:str, date_column:str, **kwargs):
     hook = PostgresHook(postgres_conn_id='postgres_default')
 
     # дата старта
-    start_date = datetime.strptime(ds, '%Y-%m-%d') # - timedelta(days=643)
+    start_date = datetime.strptime(ds, '%Y-%m-%d')
     # Выполняем SQL запрос
-    conn = hook.get_conn()
-    cursor = conn.cursor()
-    sql = f"SELECT * FROM public.{table_name} WHERE {date_column}::date = '{start_date.date()}'"
-    cursor.execute(sql, (ds,))
-    # Извлекаем все строки
-    rows = cursor.fetchall()
-    # Получаем имена колонок
-    column_names = [desc[0] for desc in cursor.description]
-    # Создаем DataFrame
-    df = pd.DataFrame(rows, columns=column_names)
-
-    # Записываем DataFrame в CSV файл
+    with hook.get_conn() as conn:
+        with conn.cursor() as cursor:
+            sql = f"SELECT * FROM public.{table_name} WHERE {date_column}::date = '{start_date.date()}'"
+            cursor.execute(sql, (ds,))
+            rows = cursor.fetchall()
+            column_names = [desc[0] for desc in cursor.description]
+            df = pd.DataFrame(rows, columns=column_names)
+    
     try:
         df.to_csv(f'/data/{table_name}/extracted_data_{ds}.csv', index=False)
         print('файл записан')
     except:
-        print('файл не был записан')
+        print('файл не был записан') 
 
 
 def load_data_to_vertica(ds, table_name:str, schema:List[str], **kwargs):
@@ -97,18 +93,16 @@ def cdm_load(script_path):
     # Подключаемся к базе данных Vertica
     with vertica_python.connect(**vertica_conn_info) as conn:
         # Создаем курсор для выполнения запросов
-        cur = conn.cursor()
-        try:
-            # Разделяем скрипт на отдельные SQL команды
-            sql_commands = sql_script.split(';')
-            # Выполняем каждую SQL команду
-            for sql_command in sql_commands:
-                print(sql_command)
-                cur.execute(sql_command)
-            conn.commit()
-            print("SQL скрипт успешно выполнен.")
-        except Exception as e:
-            print("Ошибка при выполнении SQL скрипта:", e)
+        with conn.cursor() as cur:
+            try:
+                sql_commands = [cmd.strip() for cmd in sql_script.split(';') if cmd.strip()]
+                for sql_command in sql_commands:
+                    cur.execute(sql_command)
+                conn.commit()
+                print("SQL скрипт успешно выполнен.")
+            except Exception as e:
+                print(f"Ошибка при выполнении SQL скрипта: {e}")
+                conn.rollback() 
 
 # Определение DAG
 default_args = {
